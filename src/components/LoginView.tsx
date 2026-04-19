@@ -62,7 +62,7 @@ export default function LoginView({ onLogin }: LoginViewProps) {
         <div className="flex flex-col items-center gap-4">
           <div className="size-24 bg-white rounded-3xl flex items-center justify-center shadow-[0_0_30px_rgba(19,236,91,0.3)] overflow-hidden p-0">
             <img 
-              src="/logo.jpeg" 
+              src="logo.jpeg" 
               alt="Ecotrack Logo" 
               className="w-full h-full object-cover"
               referrerPolicy="no-referrer"
