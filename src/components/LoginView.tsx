@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { User, Lock, Mail, ArrowRight, Leaf, MapPin, Recycle } from 'lucide-react';
 import { cn } from '../lib/utils';
-import logo from '../assets/app-logo.jpg';
+import logo from '@/src/assets/app-logo.jpg';
 
 interface LoginViewProps {
   onLogin: (userData: any) => void;
