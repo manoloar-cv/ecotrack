@@ -1,0 +1,5 @@
+{
+  "name": "Ecotrack",
+  "description": "Sistema inteligente de reciclaje para Vigo con escáner IA, lector de QR y ranking de barrios.",
+  "requestFramePermissions": ["camera"]
+}
