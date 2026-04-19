@@ -2,7 +2,9 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { User, Lock, Mail, ArrowRight, Leaf, MapPin, Recycle } from 'lucide-react';
 import { cn } from '../lib/utils';
-import logo from '@/src/assets/app-logo.jpg';
+
+// REEMPLAZA ESTA URL con tu enlace de Google Drive
+const LOGO_URL = "https://drive.google.com/uc?export=view&id=1zq_TD_s4jvYTpU8yCRQ3BAPF4pyLfUNU";
 
 interface LoginViewProps {
   onLogin: (userData: any) => void;
@@ -63,11 +65,12 @@ export default function LoginView({ onLogin }: LoginViewProps) {
         {/* Logo */}
         <div className="flex flex-col items-center gap-4">
           <div className="size-24 bg-white rounded-3xl flex items-center justify-center shadow-[0_0_30px_rgba(19,236,91,0.3)] overflow-hidden p-0 relative">
-            {!logoError ? (
+            {!logoError && LOGO_URL !== "" ? (
               <img 
-                src={logo} 
+                src={LOGO_URL} 
                 alt="Ecotrack Logo" 
                 className="w-full h-full object-cover"
+                referrerPolicy="no-referrer"
                 onError={() => setLogoError(true)}
               />
             ) : (
