@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'motion/react';
 import { User, Lock, Mail, ArrowRight, Leaf, MapPin, Recycle } from 'lucide-react';
 import { cn } from '../lib/utils';
+import logo from '../assets/app-logo.jpg';
 
 interface LoginViewProps {
   onLogin: (userData: any) => void;
@@ -16,6 +17,7 @@ export default function LoginView({ onLogin }: LoginViewProps) {
   const [neighborhood, setNeighborhood] = useState('Centro');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [logoError, setLogoError] = useState(false);
 
   const neighborhoods = [
     'Centro', 'Coia', 'Teis', 'Bouzas', 'Navia', 'Calvario', 
@@ -61,19 +63,18 @@ export default function LoginView({ onLogin }: LoginViewProps) {
         {/* Logo */}
         <div className="flex flex-col items-center gap-4">
           <div className="size-24 bg-white rounded-3xl flex items-center justify-center shadow-[0_0_30px_rgba(19,236,91,0.3)] overflow-hidden p-0 relative">
-            <img 
-              src="logo.jpeg" 
-              alt="Ecotrack Logo" 
-              className="w-full h-full object-cover"
-              onError={(e) => {
-                // If it fails, we show a clean icon instead of a broken image
-                e.currentTarget.style.display = 'none';
-                const parent = e.currentTarget.parentElement;
-                if (parent) {
-                  parent.innerHTML = '<div class="text-primary flex items-center justify-center w-full h-full"><svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-leaf"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C10 14.52 12 13 13 12"/></svg></div>';
-                }
-              }}
-            />
+            {!logoError ? (
+              <img 
+                src={logo} 
+                alt="Ecotrack Logo" 
+                className="w-full h-full object-cover"
+                onError={() => setLogoError(true)}
+              />
+            ) : (
+              <div className="text-primary flex items-center justify-center w-full h-full">
+                <Leaf size={40} />
+              </div>
+            )}
           </div>
           <div className="text-center">
             <h1 className="text-3xl font-bold text-white tracking-tight">Ecotrack</h1>
