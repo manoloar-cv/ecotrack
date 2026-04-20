@@ -20,7 +20,7 @@
  *   if (action === 'getRankings') {
  *     var userSheet = sheet.getSheetByName('Users') || sheet.insertSheet('Users');
  *     var data = userSheet.getDataRange().getValues();
- *     data.shift(); // remove headers
+ *     data.shift();
  *     var neighborhoodTotals = {};
  *     data.forEach(function(row) {
  *       var name = row[3] || "Vigo"; 
@@ -34,6 +34,37 @@
  *     return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
  *   }
  *
+ *   if (action === 'getLikes') {
+ *     var userId = e.parameter.userId;
+ *     var likesSheet = sheet.getSheetByName('Likes') || sheet.insertSheet('Likes');
+ *     var likes = likesSheet.getDataRange().getValues();
+ *     var userLikes = likes.filter(function(row) { return row[0] == userId; }).map(function(row) { return row[1]; });
+ *     return ContentService.createTextOutput(JSON.stringify(userLikes)).setMimeType(ContentService.MimeType.JSON);
+ *   }
+ *
+ *   if (action === 'getPosts') {
+ *     var postSheet = sheet.getSheetByName('Posts') || sheet.insertSheet('Posts');
+ *     if (postSheet.getLastRow() === 0) postSheet.appendRow(["id", "userId", "userName", "userLocation", "text", "imageUrl", "likes", "comments", "timestamp"]);
+ *     var posts = postSheet.getDataRange().getValues();
+ *     var headers = posts.shift();
+ *     var result = posts.map(function(row) {
+ *       var obj = {}; headers.forEach(function(h, i) { obj[h] = row[i]; }); return obj;
+ *     }).reverse(); // Latest first
+ *     return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+ *   }
+ *
+ *   if (action === 'getComments') {
+ *     var postId = e.parameter.postId;
+ *     var commSheet = sheet.getSheetByName('Comments') || sheet.insertSheet('Comments');
+ *     if (commSheet.getLastRow() === 0) commSheet.appendRow(["id", "postId", "userId", "userName", "text", "timestamp"]);
+ *     var comms = commSheet.getDataRange().getValues();
+ *     var headers = comms.shift();
+ *     var result = comms.filter(function(row) { return row[1] == postId; }).map(function(row) {
+ *       var obj = {}; headers.forEach(function(h, i) { obj[h] = row[i]; }); return obj;
+ *     });
+ *     return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+ *   }
+ *
  *   function checkWeeklyReset(row, rIdx) {
  *     var now = new Date();
  *     var oneJan = new Date(now.getFullYear(), 0, 1);
@@ -42,10 +73,11 @@
  *     var lastResetWeek = parseInt(row[18]) || 0;
  *     
  *     if (currentWeek !== lastResetWeek) {
- *       // Reset weekly stats (columns 11 to 15)
+ *       // Reset weekly stats (columns 11 to 15) and survey flag (column 20)
  *       var userSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Users');
  *       userSheet.getRange(rIdx + 1, 11, 1, 5).setValues([[0, 0, 0, 0, 0]]);
  *       userSheet.getRange(rIdx + 1, 19).setValue(currentWeek);
+ *       userSheet.getRange(rIdx + 1, 20).setValue(false);
  *       return true;
  *     }
  *     return false;
@@ -120,18 +152,65 @@
  *     
  *     if (data.action === 'register') {
  *       var userSheet = sheet.getSheetByName('Users') || sheet.insertSheet('Users');
- *       if (userSheet.getLastRow() === 0) userSheet.appendRow(["userId", "name", "email", "neighborhood", "points", "avatar", "level", "streak", "savings", "password", "plastic_kg", "paper_kg", "glass_kg", "organic_kg", "rest_kg", "goal_plastic", "goal_paper", "goal_glass", "last_reset_week"]);
+ *       if (userSheet.getLastRow() === 0) userSheet.appendRow(["userId", "name", "email", "neighborhood", "points", "avatar", "level", "streak", "savings", "password", "plastic_kg", "paper_kg", "glass_kg", "organic_kg", "rest_kg", "goal_plastic", "goal_paper", "goal_glass", "last_reset_week", "answered_survey"]);
  *       var existing = userSheet.getDataRange().getValues();
  *       var alreadyExists = existing.some(function(row) { return row[0] == data.id; });
- *       if (alreadyExists) return ContentService.createTextOutput(JSON.stringify({success: false, error: 'El usuario ya existe'})).setMimeType(ContentService.MimeType.JSON);
+ *       if (alreadyExists) return createJsonResponse({success: false, error: 'El usuario ya existe'});
  *       
- *       var now = new Date();
- *       var oneJan = new Date(now.getFullYear(), 0, 1);
- *       var numberOfDays = Math.floor((now - oneJan) / (24 * 60 * 60 * 1000));
- *       var currentWeek = Math.ceil((now.getDay() + 1 + numberOfDays) / 7);
- *       
- *       userSheet.appendRow([data.id, data.name, data.email, data.neighborhood, 0, data.avatar, 1, 0, 0, data.password, 0, 0, 0, 0, 0, 15, 10, 5, currentWeek]);
- *       return ContentService.createTextOutput(JSON.stringify({success: true})).setMimeType(ContentService.MimeType.JSON);
+ *       var week = getCurrentWeek();
+ *       userSheet.appendRow([data.id, data.name, data.email, data.neighborhood, 0, data.avatar, 1, 0, 0, data.password, 0, 0, 0, 0, 0, 15, 10, 5, week, false]);
+ *       return createJsonResponse({success: true});
+ *     }
+ *
+ *     if (data.action === 'logSurvey') {
+ *       var userSheet = sheet.getSheetByName('Users');
+ *       var userData = userSheet.getDataRange().getValues();
+ *       var rIdx = -1;
+ *       for (var i = 0; i < userData.length; i++) { if (userData[i][0] == data.userId) { rIdx = i; break; } }
+ *       if (rIdx > 0) {
+ *         if (userData[rIdx][19] == true) return createJsonResponse({success: false, error: 'Ya has respondido esta semana'});
+ *         userSheet.getRange(rIdx + 1, 20).setValue(true);
+ *         var pts = parseFloat(userData[rIdx][4]) || 0;
+ *         userSheet.getRange(rIdx + 1, 5).setValue(pts + (parseFloat(data.points) || 0.5));
+ *       }
+ *       // Log history...
+ *       return createJsonResponse({success: true});
+ *     }
+ *
+ *     if (data.action === 'createPost') {
+ *       var postSheet = sheet.getSheetByName('Posts') || sheet.insertSheet('Posts');
+ *       postSheet.appendRow([Utilities.getUuid(), data.userId, data.userName, data.userLocation, data.text, data.imageUrl || "", 0, 0, new Date().toISOString()]);
+ *       return createJsonResponse({success: true});
+ *     }
+ *
+ *     if (data.action === 'likePost') {
+ *       var userId = data.userId;
+ *       var postId = data.postId;
+ *       var likesSheet = sheet.getSheetByName('Likes') || sheet.insertSheet('Likes');
+ *       if (likesSheet.getLastRow() === 0) likesSheet.appendRow(["userId", "postId"]);
+ *       var alreadyLiked = likesSheet.getDataRange().getValues().some(function(row) { return row[0] == userId && row[1] == postId; });
+ *       if (alreadyLiked) return createRes({success: false, error: 'Ya has dado like'});
+ *       likesSheet.appendRow([userId, postId]);
+ *       var postSheet = sheet.getSheetByName('Posts');
+ *       var posts = postSheet.getDataRange().getValues();
+ *       for (var i = 1; i < posts.length; i++) { if (posts[i][0] == postId) { postSheet.getRange(i + 1, 7).setValue((parseInt(posts[i][6]) || 0) + 1); break; } }
+ *       return createRes({success: true});
+ *     }
+ *
+ *     if (data.action === 'addComment') {
+ *       var commSheet = sheet.getSheetByName('Comments') || sheet.insertSheet('Comments');
+ *       commSheet.appendRow([Utilities.getUuid(), data.postId, data.userId, data.userName, data.text, new Date().toISOString()]);
+ *       // Increment comment count in Posts
+ *       var postSheet = sheet.getSheetByName('Posts');
+ *       var posts = postSheet.getDataRange().getValues();
+ *       for (var j = 1; j < posts.length; j++) {
+ *         if (posts[j][0] == data.postId) {
+ *           var curC = parseInt(posts[j][7]) || 0;
+ *           postSheet.getRange(j + 1, 8).setValue(curC + 1);
+ *           break;
+ *         }
+ *       }
+ *       return createJsonResponse({success: true});
  *     }
  *
  *     if (data.action === 'logScan' || data.action === 'logBag' || data.action === 'logSurvey') {
@@ -189,6 +268,105 @@
 
 const GOOGLE_SCRIPT_URL = import.meta.env.VITE_GOOGLE_SHEETS_URL || "";
 
+export async function logSurveyToSheet(userId: string, data: any) {
+  if (!GOOGLE_SCRIPT_URL) return { success: true };
+  try {
+    const response = await fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'logSurvey', userId, ...data })
+    });
+    return await response.json();
+  } catch (error) {
+    return { success: false };
+  }
+}
+
+export async function getPostsFromSheet() {
+  if (!GOOGLE_SCRIPT_URL) return [];
+  try {
+    const url = new URL(GOOGLE_SCRIPT_URL);
+    url.searchParams.set('action', 'getPosts');
+    url.searchParams.set('t', Date.now().toString());
+    const response = await fetch(url.toString());
+    return await response.json();
+  } catch (error) {
+    return [];
+  }
+}
+
+export async function createPostInSheet(postData: any) {
+  if (!GOOGLE_SCRIPT_URL) return { success: false };
+  try {
+    const response = await fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'createPost', ...postData })
+    });
+    return { success: true };
+  } catch (error) {
+    return { success: false };
+  }
+}
+
+export async function getLikesFromSheet(userId: string) {
+  if (!GOOGLE_SCRIPT_URL) return [];
+  try {
+    const url = new URL(GOOGLE_SCRIPT_URL);
+    url.searchParams.set('action', 'getLikes');
+    url.searchParams.set('userId', userId);
+    url.searchParams.set('t', Date.now().toString());
+    const response = await fetch(url.toString());
+    return await response.json();
+  } catch (error) {
+    return [];
+  }
+}
+
+export async function likePostInSheet(postId: string, userId: string) {
+  if (!GOOGLE_SCRIPT_URL) return { success: false };
+  try {
+    await fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'likePost', postId, userId })
+    });
+    return { success: true };
+  } catch (error) {
+    return { success: false };
+  }
+}
+
+export async function getCommentsFromSheet(postId: string) {
+  if (!GOOGLE_SCRIPT_URL) return [];
+  try {
+    const url = new URL(GOOGLE_SCRIPT_URL);
+    url.searchParams.set('action', 'getComments');
+    url.searchParams.set('postId', postId);
+    url.searchParams.set('t', Date.now().toString());
+    const response = await fetch(url.toString());
+    const data = await response.json();
+    return Array.isArray(data) ? data : [];
+  } catch (error) {
+    console.error("Error fetching comments:", error);
+    return [];
+  }
+}
+
+export async function addCommentInSheet(postId: string, commentData: any) {
+  if (!GOOGLE_SCRIPT_URL) return { success: false };
+  try {
+    await fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'addComment', postId, ...commentData })
+    });
+    return { success: true };
+  } catch (error) {
+    return { success: false };
+  }
+}
+
 export async function loginUserFromSheet(username: string, password: string): Promise<{ success: boolean, user?: any, error?: string }> {
   if (!GOOGLE_SCRIPT_URL) return { success: false, error: "Backend no configurado" };
   try {
@@ -219,7 +397,8 @@ export async function loginUserFromSheet(username: string, password: string): Pr
             plastic: parseFloat(data.user.goal_plastic) || 15,
             paper: parseFloat(data.user.goal_paper) || 10,
             glass: parseFloat(data.user.goal_glass) || 5
-          }
+          },
+          answeredSurvey: data.user.answered_survey === true || data.user.answered_survey === "TRUE"
         }
       };
     }
@@ -346,7 +525,8 @@ export async function getUserProfileFromSheet(userId: string) {
             plastic: parseFloat(p.goal_plastic) || 15,
             paper: parseFloat(p.goal_paper) || 10,
             glass: parseFloat(p.goal_glass) || 5
-          }
+          },
+          answeredSurvey: p.answered_survey === true || p.answered_survey === "TRUE"
         };
       }
       return null;

@@ -60,4 +60,5 @@ export interface UserProfile {
     paper: number;
     glass: number;
   };
+  answeredSurvey?: boolean;
 }

@@ -56,7 +56,7 @@ export default function DetailsView({ onClose, user, history }: DetailsViewProps
           </div>
           <div className="p-4 rounded-xl bg-surface-dark border border-white/5">
             <p className="text-xs text-text-secondary uppercase font-bold mb-1">EcoPuntos</p>
-            <h3 className="text-2xl font-bold text-white">{user.points.toFixed(1)}</h3>
+            <h3 className="text-2xl font-bold text-white">{parseFloat(user.points).toFixed(1)}</h3>
             <p className="text-[10px] text-primary mt-1 flex items-center gap-1">
               <Leaf size={10} /> Nivel: EcoGuerrero
             </p>

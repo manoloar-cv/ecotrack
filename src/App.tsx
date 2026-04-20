@@ -29,6 +29,7 @@ import DetailsView from './components/DetailsView';
 import NotificationsView from './components/NotificationsView';
 import AchievementsView from './components/AchievementsView';
 import PostDetail from './components/PostDetail';
+import CreatePostView from './components/CreatePostView';
 import PollItem from './components/PollItem';
 import LoginView from './components/LoginView';
 import { 
@@ -39,7 +40,14 @@ import {
   getHistoryFromSheet,
   logScanToSheet,
   getRankingsFromSheet,
-  getUserRankings
+  getLikesFromSheet,
+  getUserRankings,
+  getPostsFromSheet,
+  getCommentsFromSheet,
+  createPostInSheet,
+  likePostInSheet,
+  addCommentInSheet,
+  logSurveyToSheet
 } from './services/sheetService';
 import { NeighborhoodRanking, UserProfile, UserRanking } from './types';
 import { cn } from './lib/utils';
@@ -54,6 +62,8 @@ export default function App() {
   const [selectedPost, setSelectedPost] = useState<any>(null);
   const [rankings, setRankings] = useState<NeighborhoodRanking[]>([]);
   const [neighborhoodUsers, setNeighborhoodUsers] = useState<UserRanking[]>([]);
+  const [posts, setPosts] = useState<any[]>([]);
+  const [userLikes, setUserLikes] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState('home');
   const [history, setHistory] = useState<any[]>([]);
   
@@ -96,14 +106,18 @@ export default function App() {
     if (isAuthenticated && user) {
       const loadData = async () => {
         try {
-          const [rankData, histData, neighborhoodUsersData] = await Promise.all([
+          const [rankData, histData, neighborhoodUsersData, postsData, likesData] = await Promise.all([
             getRankingsFromSheet(),
             getHistoryFromSheet(user.id),
-            getUserRankings(user.neighborhood)
+            getUserRankings(user.neighborhood),
+            getPostsFromSheet(),
+            getLikesFromSheet(user.id)
           ]);
           setRankings(rankData);
           setHistory(histData);
           setNeighborhoodUsers(neighborhoodUsersData);
+          setPosts(postsData);
+          setUserLikes(likesData);
           console.log("Conectividad con Google Sheets verificada.");
         } catch (error) {
           console.error("Error conectando con Google Sheets:", error);
@@ -130,26 +144,35 @@ export default function App() {
       const profile = await getUserProfileFromSheet(user.id);
       if (profile) {
         console.log("✅ Datos frescos recibidos:", profile);
-        setUser(prev => prev ? ({
-          ...prev,
-          points: profile.points,
-          savings: profile.savings,
-          name: profile.name || prev.name,
-          email: profile.email || prev.email,
-          neighborhood: profile.neighborhood || prev.neighborhood,
-          stats: profile.stats || prev.stats,
-          goals: profile.goals || prev.goals
-        }) : null);
+        setUser(prev => {
+          if (!prev) return null;
+          // Keep local answeredSurvey if it was just set to true to avoid stale overwrites
+          const shouldKeepLocalSurvey = prev.answeredSurvey && !profile.answeredSurvey;
+          
+          return {
+            ...prev,
+            points: profile.points,
+            savings: profile.savings,
+            name: profile.name || prev.name,
+            email: profile.email || prev.email,
+            neighborhood: profile.neighborhood || prev.neighborhood,
+            stats: profile.stats || prev.stats,
+            goals: profile.goals || prev.goals,
+            answeredSurvey: shouldKeepLocalSurvey ? true : profile.answeredSurvey
+          };
+        });
         
-        // Also refresh rankings and history
-        const [rankData, histData, nbUsers] = await Promise.all([
+        // Also refresh rankings, history and likes
+        const [rankData, histData, nbUsers, likesData] = await Promise.all([
           getRankingsFromSheet(),
           getHistoryFromSheet(user.id),
-          getUserRankings(profile.neighborhood || user.neighborhood)
+          getUserRankings(profile.neighborhood || user.neighborhood),
+          getLikesFromSheet(user.id)
         ]);
         setRankings(rankData);
         setHistory(histData);
         setNeighborhoodUsers(nbUsers);
+        setUserLikes(likesData);
       }
     }
   };
@@ -219,25 +242,31 @@ export default function App() {
     return questions[week % questions.length];
   }, []);
 
-  const handlePollVote = async () => {
+  const handlePollVote = async (points: number) => {
     if (user) {
-      const earnedPoints = 0.5;
+      if (user.answeredSurvey) return;
+      
+      const earnedPoints = points || 0.5;
       const earnedSavings = 0.05;
       
-      console.log(`🗳️ Voto registrado: +${earnedPoints} punto`);
-      const newPoints = user.points + earnedPoints;
-      const newSavings = user.savings + earnedSavings;
-      setUser(prev => prev ? ({ ...prev, points: newPoints, savings: newSavings }) : null);
+      console.log(`|u2705| Voto registrado: +${earnedPoints} punto`);
       
-      // Log to backend as a survey action
-      await logScanToSheet(user.id, { 
-        action: 'logSurvey', 
-        points: earnedPoints, 
-        savings: earnedSavings,
-        item: currentWeekQuestion.q 
-      });
+      // Update local state immediately
+      setUser(prev => prev ? ({ ...prev, points: prev.points + earnedPoints, savings: prev.savings + earnedSavings, answeredSurvey: true }) : null);
       
-      setTimeout(syncProfile, 3000);
+      try {
+        // Log to backend
+        await logSurveyToSheet(user.id, { 
+          points: earnedPoints, 
+          savings: earnedSavings,
+          item: currentWeekQuestion.q 
+        });
+        
+        // Refresh profile after a longer delay to ensure sheet is updated
+        setTimeout(syncProfile, 5000);
+      } catch (error) {
+        console.error("Error logging survey:", error);
+      }
     }
   };
 
@@ -390,50 +419,48 @@ export default function App() {
 
           {/* Community Feed */}
           <div className="space-y-4">
-            <h3 className="text-white text-lg font-bold px-1">Inspiración de la Comunidad</h3>
+            <div className="flex justify-between items-center px-1">
+              <h3 className="text-white text-lg font-bold">Inspiración de la Comunidad</h3>
+              <button 
+                onClick={() => setSelectedPost('create')}
+                className="text-primary text-xs font-bold bg-primary/10 px-3 py-1.5 rounded-lg flex items-center gap-1.5 active:scale-95 transition-transform"
+              >
+                <Plus size={14} />
+                <span>Publicar</span>
+              </button>
+            </div>
             
             <PollItem 
               question={currentWeekQuestion.q}
               options={currentWeekQuestion.o}
               onVote={handlePollVote}
+              hasVoted={user.answeredSurvey}
             />
 
-            <FeedItem 
-              user="Marta G." 
-              location="Bouzas" 
-              time="Hace 2 horas" 
-              content="¡Ya tengo mis macetas listas! Usé pintura acrílica que me sobró de otra manualidad. 🎨🌿 #EcoRetoVigo"
-              image="https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?auto=format&fit=crop&q=80&w=800"
-              likes={24}
-              comments={5}
-              onClick={() => setSelectedPost({
-                user: "Marta G.", 
-                location: "Bouzas", 
-                time: "Hace 2 horas", 
-                content: "¡Ya tengo mis macetas listas! Usé pintura acrílica que me sobró de otra manualidad. 🎨🌿 #EcoRetoVigo",
-                image: "https://images.unsplash.com/photo-1585320806297-9794b3e4eeae?auto=format&fit=crop&q=80&w=800",
-                likes: 24,
-                comments: 5
-              })}
-            />
-            <FeedItem 
-              user="Carlos R." 
-              location="Coia" 
-              time="Hace 5 horas" 
-              content="Hierbas aromáticas en latas de tomate. Perfecto para la cocina. 🍅🌱"
-              image="https://images.unsplash.com/photo-1466692476868-aef1dfb1e735?auto=format&fit=crop&q=80&w=800"
-              likes={56}
-              comments={12}
-              onClick={() => setSelectedPost({
-                user: "Carlos R.", 
-                location: "Coia", 
-                time: "Hace 5 horas", 
-                content: "Hierbas aromáticas en latas de tomate. Perfecto para la cocina. 🍅🌱",
-                image: "https://images.unsplash.com/photo-1466692476868-aef1dfb1e735?auto=format&fit=crop&q=80&w=800",
-                likes: 56,
-                comments: 12
-              })}
-            />
+            {posts.length > 0 ? posts.map((post: any) => (
+              <FeedItem 
+                key={post.id}
+                user={post.userName} 
+                location={post.userLocation} 
+                time={post.timestamp} 
+                content={post.text}
+                image={post.imageUrl}
+                likes={post.likes}
+                comments={post.comments}
+                isLiked={userLikes.includes(post.id)}
+                onClick={() => setSelectedPost(post)}
+                onLike={async () => {
+                  if (userLikes.includes(post.id)) return;
+                  setUserLikes(prev => [...prev, post.id]);
+                  setPosts(prev => prev.map(p => p.id === post.id ? { ...p, likes: (parseInt(p.likes)||0) + 1 } : p));
+                  await likePostInSheet(post.id, user.id);
+                }}
+              />
+            )) : (
+              <div className="space-y-4">
+                <p className="text-center text-xs text-text-secondary py-8">Cargando comunidad viguense...</p>
+              </div>
+            )}
           </div>
         </main>
       );
@@ -535,17 +562,45 @@ export default function App() {
           />
         )}
         {selectedPost && (
-          <PostDetail 
-            post={selectedPost}
-            onClose={() => setSelectedPost(null)}
-          />
+          selectedPost === 'create' ? (
+            <CreatePostView 
+              user={user}
+              onClose={() => setSelectedPost(null)}
+              onSuccess={() => {
+                setSelectedPost(null);
+                setTimeout(async () => {
+                  const postsData = await getPostsFromSheet();
+                  setPosts(postsData);
+                }, 2000);
+              }}
+            />
+          ) : (
+            <PostDetail 
+              currentUser={user}
+              post={selectedPost}
+              onClose={() => setSelectedPost(null)}
+            />
+          )
         )}
       </AnimatePresence>
     </div>
   );
 }
 
-function FeedItem({ user, location, time, content, image, likes, comments, onClick }: any) {
+function FeedItem({ user, location, time, content, image, likes, comments, onClick, onLike, isLiked }: any) {
+  const formattedTime = React.useMemo(() => {
+    if (!time) return "Recién";
+    const d = new Date(time);
+    if (isNaN(d.getTime())) return time;
+    const diff = Date.now() - d.getTime();
+    const mins = Math.floor(diff / 60000);
+    const hours = Math.floor(mins / 60);
+    const days = Math.floor(hours / 24);
+    if (mins < 60) return `Hace ${mins} min`;
+    if (hours < 24) return `Hace ${hours} h`;
+    return `Hace ${days} d`;
+  }, [time]);
+
   return (
     <div className="bg-surface-dark rounded-xl p-3 border border-white/5">
       <div className="flex items-center gap-3 mb-3">
@@ -553,9 +608,9 @@ function FeedItem({ user, location, time, content, image, likes, comments, onCli
              style={{ backgroundImage: `url('https://api.dicebear.com/7.x/avataaars/svg?seed=${user}')` }} />
         <div>
           <h4 className="text-sm font-bold text-white">{user}</h4>
-          <p className="text-xs text-text-secondary">{time} • {location}</p>
+          <p className="text-xs text-text-secondary">{formattedTime} • {location}</p>
         </div>
-        <button className="ml-auto text-text-secondary">
+        <button className="ml-auto text-text-secondary" onClick={onClick}>
           <MoreHorizontal size={20} />
         </button>
       </div>
@@ -563,15 +618,18 @@ function FeedItem({ user, location, time, content, image, likes, comments, onCli
         onClick={onClick}
         className="rounded-lg overflow-hidden mb-3 aspect-video bg-black/20 cursor-pointer"
       >
-        <img src={image} alt="Post" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+        <img src={image || "https://picsum.photos/seed/vigo/800/450"} alt="Post" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
       </div>
       <p className="text-sm text-slate-300 mb-3 px-1 cursor-pointer" onClick={onClick}>
         {content}
       </p>
       <div className="flex items-center justify-between border-t border-white/5 pt-2">
         <div className="flex gap-4">
-          <button className="flex items-center gap-1.5 text-text-secondary hover:text-red-500 transition-colors">
-            <Heart size={18} />
+          <button 
+            onClick={(e) => { e.stopPropagation(); onLike(); }}
+            className={cn("flex items-center gap-1.5 transition-colors", isLiked ? "text-red-500" : "text-text-secondary hover:text-red-500")}
+          >
+            <Heart size={18} className={isLiked ? "fill-red-500" : ""} />
             <span className="text-xs font-medium">{likes}</span>
           </button>
           <button className="flex items-center gap-1.5 text-text-secondary hover:text-primary transition-colors" onClick={onClick}>
@@ -579,9 +637,6 @@ function FeedItem({ user, location, time, content, image, likes, comments, onCli
             <span className="text-xs font-medium">{comments}</span>
           </button>
         </div>
-        <button className="text-text-secondary">
-          <Share2 size={18} />
-        </button>
       </div>
     </div>
   );
