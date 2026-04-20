@@ -34,6 +34,23 @@
  *     return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
  *   }
  *
+ *   function checkWeeklyReset(row, rIdx) {
+ *     var now = new Date();
+ *     var oneJan = new Date(now.getFullYear(), 0, 1);
+ *     var numberOfDays = Math.floor((now - oneJan) / (24 * 60 * 60 * 1000));
+ *     var currentWeek = Math.ceil((now.getDay() + 1 + numberOfDays) / 7);
+ *     var lastResetWeek = parseInt(row[18]) || 0;
+ *     
+ *     if (currentWeek !== lastResetWeek) {
+ *       // Reset weekly stats (columns 11 to 15)
+ *       var userSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Users');
+ *       userSheet.getRange(rIdx + 1, 11, 1, 5).setValues([[0, 0, 0, 0, 0]]);
+ *       userSheet.getRange(rIdx + 1, 19).setValue(currentWeek);
+ *       return true;
+ *     }
+ *     return false;
+ *   }
+ *
  *   if (action === 'getNeighborhoodUsers') {
  *     var userSheet = sheet.getSheetByName('Users') || sheet.insertSheet('Users');
  *     var data = userSheet.getDataRange().getValues();
@@ -55,6 +72,10 @@
  *       return (row[0] == username || row[1] == username) && row[9] == password; 
  *     });
  *     if (userRow) {
+ *       var rIdx = data.indexOf(userRow) + 1;
+ *       if (checkWeeklyReset(userRow, rIdx)) {
+ *         userRow = sheet.getSheetByName('Users').getDataRange().getValues()[rIdx];
+ *       }
  *       var obj = {};
  *       headers.forEach(function(h, i) { obj[h] = userRow[i]; });
  *       return ContentService.createTextOutput(JSON.stringify({ success: true, user: obj })).setMimeType(ContentService.MimeType.JSON);
@@ -66,8 +87,12 @@
  *     var userSheet = sheet.getSheetByName('Users') || sheet.insertSheet('Users');
  *     var data = userSheet.getDataRange().getValues();
  *     var headers = data.shift();
- *     var userRow = data.find(function(row) { return row[0] == userId; });
+ *     var idx = -1;
+ *     var userRow = data.find(function(row, i) { if (row[0] == userId) { idx = i; return true; } return false; });
  *     if (userRow) {
+ *       if (checkWeeklyReset(userRow, idx + 1)) {
+ *         userRow = userSheet.getDataRange().getValues()[idx + 1];
+ *       }
  *       var obj = {};
  *       headers.forEach(function(header, i) { obj[header] = userRow[i]; });
  *       return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
@@ -95,12 +120,17 @@
  *     
  *     if (data.action === 'register') {
  *       var userSheet = sheet.getSheetByName('Users') || sheet.insertSheet('Users');
- *       if (userSheet.getLastRow() === 0) userSheet.appendRow(["userId", "name", "email", "neighborhood", "points", "avatar", "level", "streak", "savings", "password"]);
+ *       if (userSheet.getLastRow() === 0) userSheet.appendRow(["userId", "name", "email", "neighborhood", "points", "avatar", "level", "streak", "savings", "password", "plastic_kg", "paper_kg", "glass_kg", "organic_kg", "rest_kg", "goal_plastic", "goal_paper", "goal_glass", "last_reset_week"]);
  *       var existing = userSheet.getDataRange().getValues();
  *       var alreadyExists = existing.some(function(row) { return row[0] == data.id; });
  *       if (alreadyExists) return ContentService.createTextOutput(JSON.stringify({success: false, error: 'El usuario ya existe'})).setMimeType(ContentService.MimeType.JSON);
  *       
- *       userSheet.appendRow([data.id, data.name, data.email, data.neighborhood, 0, data.avatar, 1, 0, 0, data.password]);
+ *       var now = new Date();
+ *       var oneJan = new Date(now.getFullYear(), 0, 1);
+ *       var numberOfDays = Math.floor((now - oneJan) / (24 * 60 * 60 * 1000));
+ *       var currentWeek = Math.ceil((now.getDay() + 1 + numberOfDays) / 7);
+ *       
+ *       userSheet.appendRow([data.id, data.name, data.email, data.neighborhood, 0, data.avatar, 1, 0, 0, data.password, 0, 0, 0, 0, 0, 15, 10, 5, currentWeek]);
  *       return ContentService.createTextOutput(JSON.stringify({success: true})).setMimeType(ContentService.MimeType.JSON);
  *     }
  *
@@ -113,13 +143,29 @@
  *       var rowIndex = -1;
  *       for (var i = 0; i < userData.length; i++) { if (userData[i][0] == data.userId) { rowIndex = i; break; } }
  *       if (rowIndex > 0) {
+ *         checkWeeklyReset(userData[rowIndex], rowIndex);
  *         var p = parseFloat(userData[rowIndex][4]) || 0;
  *         var s = parseFloat(userData[rowIndex][8]) || 0;
  *         userSheet.getRange(rowIndex + 1, 5).setValue(p + (parseFloat(data.points) || 0));
  *         userSheet.getRange(rowIndex + 1, 9).setValue(s + (parseFloat(data.savings) || 0));
+ *         
+ *         // Update recycling stats if action is logBag
+ *         if (data.action === 'logBag' && data.wasteType) {
+ *           var colIndex = -1;
+ *           if (data.wasteType === 'plastic') colIndex = 11;
+ *           else if (data.wasteType === 'paper') colIndex = 12;
+ *           else if (data.wasteType === 'glass') colIndex = 13;
+ *           else if (data.wasteType === 'organic') colIndex = 14;
+ *           else if (data.wasteType === 'rest') colIndex = 15;
+ *           
+ *           if (colIndex !== -1) {
+ *             var currentKg = parseFloat(userData[rowIndex][colIndex - 1]) || 0;
+ *             userSheet.getRange(rowIndex + 1, colIndex).setValue(currentKg + 1);
+ *           }
+ *         }
  *       }
  *       var historySheet = sheet.getSheetByName('History') || sheet.insertSheet('History');
- *       historySheet.appendRow([data.userId, new Date().toISOString().split('T')[0], data.points || 0, (parseFloat(data.points) * 0.1), data.item || data.action]);
+ *       historySheet.appendRow([data.userId, new Date().toISOString().split('T')[0], data.points || 0, (parseFloat(data.points) * 0.1), (data.wasteType ? data.wasteType + ' bag' : data.item || data.action)]);
  *       return ContentService.createTextOutput(JSON.stringify({success: true})).setMimeType(ContentService.MimeType.JSON);
  *     }
  *
@@ -161,7 +207,19 @@ export async function loginUserFromSheet(username: string, password: string): Pr
         user: {
           ...data.user,
           points: parseFloat(data.user.points) || 0,
-          savings: parseFloat(data.user.savings) || 0
+          savings: parseFloat(data.user.savings) || 0,
+          stats: {
+            plastic: parseFloat(data.user.plastic_kg) || 0,
+            paper: parseFloat(data.user.paper_kg) || 0,
+            glass: parseFloat(data.user.glass_kg) || 0,
+            organic: parseFloat(data.user.organic_kg) || 0,
+            rest: parseFloat(data.user.rest_kg) || 0
+          },
+          goals: {
+            plastic: parseFloat(data.user.goal_plastic) || 15,
+            paper: parseFloat(data.user.goal_paper) || 10,
+            glass: parseFloat(data.user.goal_glass) || 5
+          }
         }
       };
     }
@@ -271,12 +329,24 @@ export async function getUserProfileFromSheet(userId: string) {
     console.log("📥 Respuesta recibida del backend.");
     
     try {
-      const profile = JSON.parse(text);
-      if (profile) {
+      const p = JSON.parse(text);
+      if (p) {
         return {
-          ...profile,
-          points: parseFloat(profile.points) || 0,
-          savings: parseFloat(profile.savings) || 0
+          ...p,
+          points: parseFloat(p.points) || 0,
+          savings: parseFloat(p.savings) || 0,
+          stats: {
+            plastic: parseFloat(p.plastic_kg) || 0,
+            paper: parseFloat(p.paper_kg) || 0,
+            glass: parseFloat(p.glass_kg) || 0,
+            organic: parseFloat(p.organic_kg) || 0,
+            rest: parseFloat(p.rest_kg) || 0
+          },
+          goals: {
+            plastic: parseFloat(p.goal_plastic) || 15,
+            paper: parseFloat(p.goal_paper) || 10,
+            glass: parseFloat(p.goal_glass) || 5
+          }
         };
       }
       return null;

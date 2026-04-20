@@ -3,18 +3,46 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { motion } from 'motion/react';
 import { X, QrCode, Loader2, CheckCircle2, Camera } from 'lucide-react';
 import { logBagToSheet } from '../services/sheetService';
+import { cn } from '../lib/utils';
 
 interface QRScannerProps {
   onClose: () => void;
-  onSuccess: (code: string) => void;
+  onSuccess: (code: string, type: string) => void;
   userId: string;
 }
 
 export default function QRScanner({ onClose, onSuccess, userId }: QRScannerProps) {
   const [processing, setProcessing] = useState(false);
   const [scannedCode, setScannedCode] = useState<string | null>(null);
+  const [wasteType, setWasteType] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const scannerRef = useRef<Html5Qrcode | null>(null);
+
+  const wasteTypes = [
+    { id: 'plastic', label: 'Plástico', icon: '♻️', color: 'bg-yellow-400' },
+    { id: 'paper', label: 'Papel', icon: '📰', color: 'bg-blue-400' },
+    { id: 'glass', label: 'Vidrio', icon: '🍾', color: 'bg-green-400' },
+    { id: 'organic', label: 'Orgánico', icon: '🍎', color: 'bg-amber-800' },
+  ];
+
+  const handleComplete = async (code: string, type: string) => {
+    setProcessing(true);
+    try {
+      await logBagToSheet(userId, { 
+        bagCode: code, 
+        points: 1,
+        savings: 0.10,
+        wasteType: type
+      });
+    } catch (e) {
+      console.error("Error logging bag:", e);
+    }
+    
+    setTimeout(() => {
+      onSuccess(code, type);
+      onClose();
+    }, 1000);
+  };
 
   const isScanningRef = useRef(false);
 
@@ -58,24 +86,7 @@ export default function QRScanner({ onClose, onSuccess, userId }: QRScannerProps
               console.error("Error stopping scanner:", e);
             }
 
-            setProcessing(true);
             setScannedCode(decodedText);
-            
-            try {
-              // 1 point per bag = 0.10€ savings
-              await logBagToSheet(userId, { 
-                bagCode: decodedText, 
-                points: 1,
-                savings: 0.10 
-              });
-            } catch (e) {
-              console.error("Error logging bag:", e);
-            }
-            
-            setTimeout(() => {
-              onSuccess(decodedText);
-              onClose();
-            }, 1500);
           },
           (errorMessage) => {
             // Ignore common errors
@@ -157,32 +168,46 @@ export default function QRScanner({ onClose, onSuccess, userId }: QRScannerProps
           )}
         </div>
         
-        {processing && (
+        {(scannedCode || processing) && (
           <motion.div 
             initial={{ scale: 0.9, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             className="mt-8 p-6 bg-surface-dark rounded-2xl border border-primary/20 flex flex-col items-center gap-4 text-center w-full max-w-sm"
           >
-            {scannedCode ? (
+            {processing ? (
+              <>
+                <Loader2 className="animate-spin text-primary" size={40} />
+                <p className="text-white font-medium">Registrando bolsa...</p>
+              </>
+            ) : (
               <>
                 <div className="size-16 bg-primary/20 rounded-full flex items-center justify-center text-primary">
                   <CheckCircle2 size={40} />
                 </div>
-                <div>
-                  <h3 className="text-white font-bold text-lg">Bolsa Asignada</h3>
-                  <p className="text-text-secondary text-sm">Código: {scannedCode}</p>
+                <div className="mb-2">
+                  <h3 className="text-white font-bold text-lg">Bolsa Detectada</h3>
+                  <p className="text-text-secondary text-xs">Indica qué vas a reciclar en esta bolsa:</p>
                 </div>
-              </>
-            ) : (
-              <>
-                <Loader2 className="animate-spin text-primary" size={40} />
-                <p className="text-white font-medium">Procesando código...</p>
+                
+                <div className="grid grid-cols-2 gap-3 w-full">
+                  {wasteTypes.map((type) => (
+                    <button
+                      key={type.id}
+                      onClick={() => handleComplete(scannedCode!, type.id)}
+                      className="flex flex-col items-center gap-2 p-3 rounded-xl bg-white/5 border border-white/10 hover:border-primary/50 transition-all group"
+                    >
+                      <span className="text-2xl group-hover:scale-110 transition-transform">{type.icon}</span>
+                      <span className="text-[10px] uppercase font-bold text-white">{type.label}</span>
+                      <div className={cn("w-full h-1 rounded-full opacity-30", type.color)} />
+                    </button>
+                  ))}
+                </div>
               </>
             )}
           </motion.div>
         )}
 
-        {!processing && !error && (
+        {!scannedCode && !processing && !error && (
           <div className="mt-8 text-center space-y-6">
             <div className="flex flex-col items-center">
               <QrCode className="text-primary/40 mb-2" size={48} />
@@ -195,13 +220,7 @@ export default function QRScanner({ onClose, onSuccess, userId }: QRScannerProps
                 onClick={() => {
                   const code = window.prompt("Introduce el código de la bolsa manualmente:");
                   if (code) {
-                    setProcessing(true);
                     setScannedCode(code);
-                    logBagToSheet(userId, { bagCode: code, points: 1, savings: 0.10 });
-                    setTimeout(() => {
-                      onSuccess(code);
-                      onClose();
-                    }, 1500);
                   }
                 }}
                 className="px-4 py-2 bg-surface-dark border border-white/10 rounded-xl text-primary text-xs font-bold hover:bg-surface-dark/80 transition-colors"

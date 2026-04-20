@@ -50,9 +50,7 @@ export default function LoginView({ onLogin }: LoginViewProps) {
         if (result.success && result.user) {
           onLogin({
             ...result.user,
-            id: result.user.userId,
-            stats: { plastic: 0, paper: 0, glass: 0, organic: 0, rest: 0 },
-            goals: { plastic: 12, paper: 8, glass: 5 }
+            id: result.user.userId
           });
         } else {
           setError(result.error || 'Error al iniciar sesión');
@@ -76,7 +74,7 @@ export default function LoginView({ onLogin }: LoginViewProps) {
             points: 0,
             savings: 0,
             stats: { plastic: 0, paper: 0, glass: 0, organic: 0, rest: 0 },
-            goals: { plastic: 12, paper: 8, glass: 5 }
+            goals: { plastic: 15, paper: 10, glass: 5 }
           });
         } else {
           setError(result.error || 'Error al registrar usuario');

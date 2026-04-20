@@ -59,6 +59,39 @@ export default function App() {
   
   const [user, setUser] = useState<UserProfile | null>(null);
 
+  const savingsTrend = React.useMemo(() => {
+    if (!history || history.length === 0) return 15;
+    const now = new Date();
+    const last7Days = history.filter(h => {
+      const d = new Date(h.date);
+      return (now.getTime() - d.getTime()) <= 7 * 24 * 60 * 60 * 1000;
+    }).reduce((sum, h) => sum + (parseFloat(h.savings) || 0), 0);
+    
+    const prev7Days = history.filter(h => {
+      const d = new Date(h.date);
+      const diff = (now.getTime() - d.getTime());
+      return diff > 7 * 24 * 60 * 60 * 1000 && diff <= 14 * 24 * 60 * 60 * 1000;
+    }).reduce((sum, h) => sum + (parseFloat(h.savings) || 0), 0);
+
+    if (prev7Days === 0) return last7Days > 0 ? 100 : 15;
+    return Math.round(((last7Days - prev7Days) / prev7Days) * 100);
+  }, [history]);
+
+  const pointsToday = React.useMemo(() => {
+    if (!history) return 0;
+    const today = new Date().toISOString().split('T')[0];
+    return history
+      .filter(h => h.date === today)
+      .reduce((sum, h) => sum + (parseFloat(h.points) || 0), 0);
+  }, [history]);
+
+  const totalProgress = React.useMemo(() => {
+    if (!user) return 0;
+    const current = user.stats.plastic + user.stats.paper + user.stats.glass;
+    const total = user.goals.plastic + user.goals.paper + user.goals.glass;
+    return Math.min(100, Math.round((current / total) * 100));
+  }, [user]);
+
   useEffect(() => {
     if (isAuthenticated && user) {
       const loadData = async () => {
@@ -69,7 +102,7 @@ export default function App() {
             getUserRankings(user.neighborhood)
           ]);
           setRankings(rankData);
-          setHistory(histData.length > 0 ? histData : await getHistoricalData(user.id));
+          setHistory(histData);
           setNeighborhoodUsers(neighborhoodUsersData);
           console.log("Conectividad con Google Sheets verificada.");
         } catch (error) {
@@ -103,7 +136,9 @@ export default function App() {
           savings: profile.savings,
           name: profile.name || prev.name,
           email: profile.email || prev.email,
-          neighborhood: profile.neighborhood || prev.neighborhood
+          neighborhood: profile.neighborhood || prev.neighborhood,
+          stats: profile.stats || prev.stats,
+          goals: profile.goals || prev.goals
         }) : null);
         
         // Also refresh rankings and history
@@ -113,7 +148,7 @@ export default function App() {
           getUserRankings(profile.neighborhood || user.neighborhood)
         ]);
         setRankings(rankData);
-        setHistory(histData.length > 0 ? histData : await getHistoricalData(user.id));
+        setHistory(histData);
         setNeighborhoodUsers(nbUsers);
       }
     }
@@ -133,13 +168,15 @@ export default function App() {
     }
   };
 
-  const handleQRSuccess = async (code: string) => {
+  const handleQRSuccess = async (code: string, type: string) => {
     if (user) {
-      console.log(`✨ Bolsa registrada: ${code}`);
-      // Optimistic update: 1 point = 0.10€
+      console.log(`✨ Bolsa registrada: ${code} (${type})`);
+      // Optimistic update: 1 point = 0.10€ + 1kg
       const newPoints = user.points + 1;
       const newSavings = user.savings + 0.10;
-      setUser(prev => prev ? ({ ...prev, points: newPoints, savings: newSavings }) : null);
+      const newStats = { ...user.stats, [type]: (user.stats[type as keyof typeof user.stats] || 0) + 1 };
+      
+      setUser(prev => prev ? ({ ...prev, points: newPoints, savings: newSavings, stats: newStats }) : null);
       
       // Sync with backend after a short delay
       setTimeout(syncProfile, 3000);
@@ -241,29 +278,29 @@ export default function App() {
                 <p className="text-sm font-medium text-text-secondary mb-1">Ahorro Tasa</p>
                 <h3 className="text-2xl font-bold text-white tracking-tight">€{user.savings.toFixed(2)}</h3>
               </div>
-              <div className="mt-3 flex items-center gap-1 text-primary text-xs font-semibold bg-primary/10 w-fit px-2 py-1 rounded-lg">
-                <TrendingUp size={14} />
-                <span>+15% este mes</span>
-              </div>
-            </motion.div>
+                <div className="mt-3 flex items-center gap-1 text-primary text-xs font-semibold bg-primary/10 w-fit px-2 py-1 rounded-lg">
+                  <TrendingUp size={14} className={savingsTrend < 0 ? "rotate-180" : ""} />
+                  <span>{savingsTrend > 0 ? '+' : ''}{savingsTrend}% este periodo</span>
+                </div>
+              </motion.div>
 
-            <motion.div 
-              whileHover={{ scale: 1.02 }}
-              onClick={() => setShowDetails(true)}
-              className="flex flex-col justify-between p-5 rounded-xl bg-surface-dark border border-white/5 relative overflow-hidden group cursor-pointer"
-            >
-              <div className="absolute top-0 right-0 p-3 opacity-10">
-                <Leaf size={48} className="text-primary" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-text-secondary mb-1">EcoPuntos</p>
-                <h3 className="text-2xl font-bold text-white tracking-tight">{user.points.toFixed(1)} pts</h3>
-              </div>
-              <div className="mt-3 flex items-center gap-1 text-primary text-xs font-semibold bg-primary/10 w-fit px-2 py-1 rounded-lg">
-                <Plus size={14} />
-                <span>50 pts hoy</span>
-              </div>
-            </motion.div>
+              <motion.div 
+                whileHover={{ scale: 1.02 }}
+                onClick={() => setShowDetails(true)}
+                className="flex flex-col justify-between p-5 rounded-xl bg-surface-dark border border-white/5 relative overflow-hidden group cursor-pointer"
+              >
+                <div className="absolute top-0 right-0 p-3 opacity-10">
+                  <Leaf size={48} className="text-primary" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-text-secondary mb-1">EcoPuntos</p>
+                  <h3 className="text-2xl font-bold text-white tracking-tight">{user.points.toFixed(1)} pts</h3>
+                </div>
+                <div className="mt-3 flex items-center gap-1 text-primary text-xs font-semibold bg-primary/10 w-fit px-2 py-1 rounded-lg">
+                  <Plus size={14} />
+                  <span>{pointsToday.toFixed(1)} pts hoy</span>
+                </div>
+              </motion.div>
           </div>
 
           {/* Weekly Goals */}
@@ -284,19 +321,19 @@ export default function App() {
                     className="stroke-primary" strokeWidth="3" 
                     strokeDasharray="100" 
                     initial={{ strokeDashoffset: 100 }}
-                    animate={{ strokeDashoffset: 15 }}
+                    animate={{ strokeDashoffset: 100 - totalProgress }}
                     transition={{ duration: 1.5, ease: "easeOut" }}
                     strokeLinecap="round"
                   />
                 </svg>
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <span className="text-2xl font-bold text-white">85%</span>
+                  <span className="text-2xl font-bold text-white">{totalProgress}%</span>
                 </div>
               </div>
               <div className="flex-1 space-y-3">
-                <GoalRow label="Plástico" current={user.goals.plastic} total={15} color="bg-yellow-400" />
-                <GoalRow label="Papel" current={user.goals.paper} total={10} color="bg-blue-400" />
-                <GoalRow label="Vidrio" current={user.goals.glass} total={5} color="bg-green-400" />
+                <GoalRow label="Plástico" current={user.stats.plastic} total={user.goals.plastic} color="bg-yellow-400" />
+                <GoalRow label="Papel" current={user.stats.paper} total={user.goals.paper} color="bg-blue-400" />
+                <GoalRow label="Vidrio" current={user.stats.glass} total={user.goals.glass} color="bg-green-400" />
               </div>
             </div>
           </div>
