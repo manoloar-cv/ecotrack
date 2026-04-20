@@ -11,6 +11,25 @@ interface DetailsViewProps {
 }
 
 export default function DetailsView({ onClose, user, history }: DetailsViewProps) {
+  // Aggregate history by date
+  const aggregatedHistory = React.useMemo(() => {
+    const totals: Record<string, { date: string, points: number, savings: number }> = {};
+    
+    // Sort all records by date first
+    const sortedRaw = [...history].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+    
+    sortedRaw.forEach(item => {
+      const dateStr = typeof item.date === 'string' ? item.date.split('T')[0] : new Date(item.date).toISOString().split('T')[0];
+      if (!totals[dateStr]) {
+        totals[dateStr] = { date: dateStr, points: 0, savings: 0 };
+      }
+      totals[dateStr].points += parseFloat(item.points) || 0;
+      totals[dateStr].savings += parseFloat(item.savings) || 0;
+    });
+    
+    return Object.values(totals).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }, [history]);
+
   return (
     <motion.div 
       initial={{ x: '100%' }}
@@ -37,7 +56,7 @@ export default function DetailsView({ onClose, user, history }: DetailsViewProps
           </div>
           <div className="p-4 rounded-xl bg-surface-dark border border-white/5">
             <p className="text-xs text-text-secondary uppercase font-bold mb-1">EcoPuntos</p>
-            <h3 className="text-2xl font-bold text-white">{user.points}</h3>
+            <h3 className="text-2xl font-bold text-white">{user.points.toFixed(1)}</h3>
             <p className="text-[10px] text-primary mt-1 flex items-center gap-1">
               <Leaf size={10} /> Nivel: EcoGuerrero
             </p>
@@ -52,7 +71,7 @@ export default function DetailsView({ onClose, user, history }: DetailsViewProps
           </h3>
           <div className="h-64 w-full">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={history}>
+              <AreaChart data={aggregatedHistory}>
                 <defs>
                   <linearGradient id="colorPoints" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#13ec5b" stopOpacity={0.3}/>
@@ -60,11 +79,25 @@ export default function DetailsView({ onClose, user, history }: DetailsViewProps
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="#23482f" vertical={false} />
-                <XAxis dataKey="date" stroke="#92c9a4" fontSize={10} tickLine={false} axisLine={false} />
+                <XAxis 
+                  dataKey="date" 
+                  stroke="#92c9a4" 
+                  fontSize={10} 
+                  tickLine={false} 
+                  axisLine={false}
+                  tickFormatter={(str) => {
+                    const d = new Date(str);
+                    return isNaN(d.getTime()) ? str : `${d.getDate()}/${d.getMonth() + 1}`;
+                  }}
+                />
                 <YAxis stroke="#92c9a4" fontSize={10} tickLine={false} axisLine={false} />
                 <Tooltip 
                   contentStyle={{ backgroundColor: '#193322', border: 'none', borderRadius: '8px', color: '#fff' }}
                   itemStyle={{ color: '#13ec5b' }}
+                  labelFormatter={(str) => {
+                    const d = new Date(str);
+                    return isNaN(d.getTime()) ? str : d.toLocaleDateString();
+                  }}
                 />
                 <Area type="monotone" dataKey="points" stroke="#13ec5b" fillOpacity={1} fill="url(#colorPoints)" />
               </AreaChart>

@@ -4,7 +4,13 @@ import { User, Lock, Mail, ArrowRight, Leaf, MapPin, Recycle } from 'lucide-reac
 import { cn } from '../lib/utils';
 
 // REEMPLAZA ESTA URL con tu enlace de Google Drive
-const LOGO_URL = "https://drive.google.com/uc?export=view&id=1zq_TD_s4jvYTpU8yCRQ3BAPF4pyLfUNU";
+// Usamos el formato /d/id=w1000 que suele ser más estable para previsualizaciones
+const LOGO_URL = "https://lh3.googleusercontent.com/d/1zq_TD_s4jvYTpU8yCRQ3BAPF4pyLfUNU=w1000";
+
+import { 
+  loginUserFromSheet, 
+  registerUserInSheet 
+} from '../services/sheetService';
 
 interface LoginViewProps {
   onLogin: (userData: any) => void;
@@ -26,7 +32,7 @@ export default function LoginView({ onLogin }: LoginViewProps) {
     'Casco Vello', 'Balaídos', 'Fragoso', 'Sárdoma', 'Matamá'
   ];
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -37,22 +43,50 @@ export default function LoginView({ onLogin }: LoginViewProps) {
 
     setLoading(true);
     
-    // Simulate API call
-    setTimeout(() => {
-      const userId = username.toLowerCase().replace(/\s+/g, '_') || 'guest';
-      onLogin({
-        id: userId,
-        name: username || 'Usuario',
-        email: email || 'usuario@vigo.es',
-        points: 0,
-        savings: 0,
-        neighborhood: isLogin ? 'Coia' : neighborhood,
-        avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${username || 'Alejandro'}`,
-        stats: { plastic: 0, paper: 0, glass: 0, organic: 0, rest: 0 },
-        goals: { plastic: 12, paper: 8, glass: 5 }
-      });
+    try {
+      if (isLogin) {
+        // Real Login
+        const result = await loginUserFromSheet(username, password);
+        if (result.success && result.user) {
+          onLogin({
+            ...result.user,
+            id: result.user.userId,
+            stats: { plastic: 0, paper: 0, glass: 0, organic: 0, rest: 0 },
+            goals: { plastic: 12, paper: 8, glass: 5 }
+          });
+        } else {
+          setError(result.error || 'Error al iniciar sesión');
+        }
+      } else {
+        // Real Registration
+        const userId = username.toLowerCase().replace(/\s+/g, '_');
+        const userData = {
+          id: userId,
+          name: username,
+          email: email,
+          neighborhood: neighborhood,
+          password: password,
+          avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${username || 'Alejandro'}`
+        };
+
+        const result = await registerUserInSheet(userData);
+        if (result.success) {
+          onLogin({
+            ...userData,
+            points: 0,
+            savings: 0,
+            stats: { plastic: 0, paper: 0, glass: 0, organic: 0, rest: 0 },
+            goals: { plastic: 12, paper: 8, glass: 5 }
+          });
+        } else {
+          setError(result.error || 'Error al registrar usuario');
+        }
+      }
+    } catch (err) {
+      setError('Error de conexión con el servidor');
+    } finally {
       setLoading(false);
-    }, 1500);
+    }
   };
 
   return (
@@ -65,7 +99,7 @@ export default function LoginView({ onLogin }: LoginViewProps) {
         {/* Logo */}
         <div className="flex flex-col items-center gap-4">
           <div className="size-24 bg-white rounded-3xl flex items-center justify-center shadow-[0_0_30px_rgba(19,236,91,0.3)] overflow-hidden p-0 relative">
-            {!logoError && LOGO_URL !== "" ? (
+            {!logoError ? (
               <img 
                 src={LOGO_URL} 
                 alt="Ecotrack Logo" 

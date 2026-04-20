@@ -32,14 +32,16 @@ import PostDetail from './components/PostDetail';
 import PollItem from './components/PollItem';
 import LoginView from './components/LoginView';
 import { 
-  getRankingsFromSheet, 
   getContainerLocations, 
   getHistoricalData, 
   getUserProfileFromSheet, 
   updateUserProfileInSheet,
-  getHistoryFromSheet
+  getHistoryFromSheet,
+  logScanToSheet,
+  getRankingsFromSheet,
+  getUserRankings
 } from './services/sheetService';
-import { NeighborhoodRanking, UserProfile } from './types';
+import { NeighborhoodRanking, UserProfile, UserRanking } from './types';
 import { cn } from './lib/utils';
 
 export default function App() {
@@ -51,6 +53,7 @@ export default function App() {
   const [showAchievements, setShowAchievements] = useState(false);
   const [selectedPost, setSelectedPost] = useState<any>(null);
   const [rankings, setRankings] = useState<NeighborhoodRanking[]>([]);
+  const [neighborhoodUsers, setNeighborhoodUsers] = useState<UserRanking[]>([]);
   const [activeTab, setActiveTab] = useState('home');
   const [history, setHistory] = useState<any[]>([]);
   
@@ -60,12 +63,14 @@ export default function App() {
     if (isAuthenticated && user) {
       const loadData = async () => {
         try {
-          const [rankData, histData] = await Promise.all([
+          const [rankData, histData, neighborhoodUsersData] = await Promise.all([
             getRankingsFromSheet(),
-            getHistoryFromSheet(user.id)
+            getHistoryFromSheet(user.id),
+            getUserRankings(user.neighborhood)
           ]);
           setRankings(rankData);
           setHistory(histData.length > 0 ? histData : await getHistoricalData(user.id));
+          setNeighborhoodUsers(neighborhoodUsersData);
           console.log("Conectividad con Google Sheets verificada.");
         } catch (error) {
           console.error("Error conectando con Google Sheets:", error);
@@ -73,25 +78,11 @@ export default function App() {
       };
       loadData();
     }
-  }, [isAuthenticated, user?.id]);
+  }, [isAuthenticated, user?.id, user?.neighborhood]);
 
   const handleLogin = async (userData: UserProfile) => {
     setIsAuthenticated(true);
-    // Try to get existing profile from sheet
-    const existingProfile = await getUserProfileFromSheet(userData.id);
-    if (existingProfile) {
-      const points = parseFloat(existingProfile.points) || 0;
-      setUser({
-        ...userData,
-        points: points,
-        savings: parseFloat(existingProfile.savings) || (points * 0.10),
-        neighborhood: existingProfile.neighborhood || userData.neighborhood
-      });
-    } else {
-      // Create new profile in sheet
-      setUser(userData);
-      await updateUserProfileInSheet(userData);
-    }
+    setUser(userData);
   };
 
   const handleLogout = () => {
@@ -110,16 +101,20 @@ export default function App() {
           ...prev,
           points: profile.points,
           savings: profile.savings,
+          name: profile.name || prev.name,
+          email: profile.email || prev.email,
           neighborhood: profile.neighborhood || prev.neighborhood
         }) : null);
         
         // Also refresh rankings and history
-        const [rankData, histData] = await Promise.all([
+        const [rankData, histData, nbUsers] = await Promise.all([
           getRankingsFromSheet(),
-          getHistoryFromSheet(user.id)
+          getHistoryFromSheet(user.id),
+          getUserRankings(profile.neighborhood || user.neighborhood)
         ]);
         setRankings(rankData);
         setHistory(histData.length > 0 ? histData : await getHistoricalData(user.id));
+        setNeighborhoodUsers(nbUsers);
       }
     }
   };
@@ -151,9 +146,61 @@ export default function App() {
     }
   };
 
-  const handlePollVote = (points: number) => {
+  const currentWeekQuestion = React.useMemo(() => {
+    const questions = [
+      { q: "¿Separas el vidrio de las tapas de metal?", o: ["Siempre", "A veces", "Nunca"] },
+      { q: "¿Llevas tus propias bolsas de tela al supermercado?", o: ["Sí, siempre", "Suelo olvidarlas", "No uso tela"] },
+      { q: "¿Sabías que el aceite usado contamina 1.000 litros de agua?", o: ["Sí, lo reciclo", "No lo sabía", "Lo tiro por el fregadero"] },
+      { q: "¿Evitas comprar frutas envueltas en plástico innecesario?", o: ["Sí, compro a granel", "A veces", "No me fijo"] },
+      { q: "¿Usas botellas de agua reutilizables?", o: ["Sí", "Uso de plástico", "Intercambio"] },
+      { q: "¿Reciclas las pilas en puntos específicos?", o: ["Sí", "Al contenedor gris", "A veces"] },
+      { q: "¿Cierras el grifo mientras te cepillas los dientes?", o: ["Siempre", "A veces", "Me olvido"] },
+      { q: "¿Compras productos locales de temporada?", o: ["Sí, en el mercado", "En el súper", "No me fijo"] },
+      { q: "¿Sueles apagar las luces si no estás en la habitación?", o: ["Siempre", "A veces", "Pocas veces"] },
+      { q: "¿Conoces el punto limpio más cercano a tu casa?", o: ["Sí perfectamente", "Sé dónde está", "Ni idea"] },
+      { q: "¿Usas el transporte público por Vigo?", o: ["A diario", "A veces", "Uso coche"] },
+      { q: "¿Separas los restos para el contenedor marrón?", o: ["Sí", "No tengo cerca", "No separo orgánico"] },
+      { q: "¿Donas la ropa que ya no usas?", o: ["Sí siempre", "La tiro", "La guardo"] },
+      { q: "¿Evitas usar cubiertos de plástico?", o: ["Sí", "No", "A veces"] },
+      { q: "¿Sabías que Vigo tiene puntos limpios móviles?", o: ["Sí los uso", "Lo sabía", "No tenía ni idea"] },
+      { q: "¿Reciclas el cartón de pizza con algo de grasa?", o: ["Sí al azul", "Al gris", "No sabía"] },
+      { q: "¿Usas bombillas de bajo consumo en casa?", o: ["Todas LED", "Algunas", "No sé"] },
+      { q: "¿Sabías que el aluminio es infinitamente reciclable?", o: ["Sí", "No", "Interesante"] },
+      { q: "¿Recogeres basura si la ves en Samil o Alcabre?", o: ["Sí siempre", "A veces", "No es mi basura"] },
+      { q: "¿Evitas imprimir si no es necesario?", o: ["Todo digital", "Imprimo poco", "Imprimo mucho"] },
+      { q: "¿Usas servilletas de tela en vez de papel?", o: ["Sí en casa", "No", "A veces"] },
+      { q: "¿Participarías en una recogida de plásticos vecinal?", o: ["¡Claro!", "Depende del día", "No tengo tiempo"] }
+    ];
+    
+    // Calculate week of year
+    const now = new Date();
+    const start = new Date(now.getFullYear(), 0, 1);
+    const diff = now.getTime() - start.getTime();
+    const oneWeek = 1000 * 60 * 60 * 24 * 7;
+    const week = Math.floor(diff / oneWeek);
+    
+    return questions[week % questions.length];
+  }, []);
+
+  const handlePollVote = async () => {
     if (user) {
-      setUser(prev => prev ? ({ ...prev, points: prev.points + points }) : null);
+      const earnedPoints = 0.5;
+      const earnedSavings = 0.05;
+      
+      console.log(`🗳️ Voto registrado: +${earnedPoints} punto`);
+      const newPoints = user.points + earnedPoints;
+      const newSavings = user.savings + earnedSavings;
+      setUser(prev => prev ? ({ ...prev, points: newPoints, savings: newSavings }) : null);
+      
+      // Log to backend as a survey action
+      await logScanToSheet(user.id, { 
+        action: 'logSurvey', 
+        points: earnedPoints, 
+        savings: earnedSavings,
+        item: currentWeekQuestion.q 
+      });
+      
+      setTimeout(syncProfile, 3000);
     }
   };
 
@@ -274,20 +321,21 @@ export default function App() {
               <Trophy size={20} className="text-text-secondary" />
             </div>
             <div className="p-2">
-              {rankings?.slice(0, 3).map((rank, i) => (
-                <div key={rank.neighborhood || i} className="flex items-center justify-between p-3 hover:bg-white/5 rounded-lg transition-colors">
+              {neighborhoodUsers?.slice(0, 3).map((rank, i) => (
+                <div key={rank.name || i} className="flex items-center justify-between p-3 hover:bg-white/5 rounded-lg transition-colors">
                   <div className="flex items-center gap-3">
                     <span className={cn("font-bold w-4", i === 0 ? "text-yellow-400" : "text-gray-400")}>{i + 1}</span>
                     <div className="h-8 w-8 rounded-full bg-cover bg-center" 
-                         style={{ backgroundImage: `url('https://api.dicebear.com/7.x/avataaars/svg?seed=${rank.neighborhood}')` }} />
-                    <span className="text-sm font-medium text-white">{rank.neighborhood}</span>
+                         style={{ backgroundImage: `url('${rank.avatar}')` }} />
+                    <span className="text-sm font-medium text-white">{rank.name}</span>
                   </div>
                   <span className="text-sm font-bold text-primary">{rank.points.toLocaleString()} pts</span>
                 </div>
               ))}
               <div className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-primary/20">
                 <div className="flex items-center gap-3">
-                  <span className="font-bold text-primary w-4">12</span>
+                  {/* Local rank logic would go here, 12 is placeholder */}
+                  <span className="font-bold text-primary w-4">#</span>
                   <div className="h-8 w-8 rounded-full bg-cover bg-center border border-primary" 
                        style={{ backgroundImage: `url('${user.avatar}')` }} />
                   <span className="text-sm font-medium text-white">Tú</span>
@@ -302,8 +350,8 @@ export default function App() {
             <h3 className="text-white text-lg font-bold px-1">Inspiración de la Comunidad</h3>
             
             <PollItem 
-              question="¿Sabías que el aceite usado contamina 1.000 litros de agua? ¿Dónde lo tiras?"
-              options={["Punto Limpio", "Contenedor Naranja", "Lo guardo para jabón", "No sabía que se reciclaba"]}
+              question={currentWeekQuestion.q}
+              options={currentWeekQuestion.o}
               onVote={handlePollVote}
             />
 

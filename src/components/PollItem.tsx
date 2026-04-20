@@ -17,7 +17,7 @@ export default function PollItem({ question, options, onVote }: PollItemProps) {
     if (voted) return;
     setSelected(index);
     setVoted(true);
-    onVote(25); // Award 25 points for voting
+    onVote(0.5); // Award 0.5 points for voting
   };
 
   return (
@@ -59,7 +59,7 @@ export default function PollItem({ question, options, onVote }: PollItemProps) {
           className="mt-4 flex items-center gap-2 text-primary text-xs font-bold bg-primary/10 p-2 rounded-lg justify-center"
         >
           <Trophy size={14} />
-          ¡Gracias por participar! +25 EcoPuntos
+          ¡Gracias por participar! +0.5 EcoPuntos
         </motion.div>
       )}
     </div>

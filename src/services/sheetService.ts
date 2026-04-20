@@ -12,30 +12,64 @@
  * function doGet(e) {
  *   var action = e.parameter.action;
  *   var userId = e.parameter.userId;
+ *   var neighborhood = e.parameter.neighborhood;
  *   if (!action) return ContentService.createTextOutput("✅ Backend EcoTrack Vigo Activo.").setMimeType(ContentService.MimeType.TEXT);
  *   
  *   var sheet = SpreadsheetApp.getActiveSpreadsheet();
  *   
  *   if (action === 'getRankings') {
- *     var rankingSheet = sheet.getSheetByName('Rankings') || sheet.getSheets()[0];
- *     var data = rankingSheet.getDataRange().getValues();
- *     var headers = data.shift();
- *     var result = data.map(row => {
- *       var obj = {};
- *       headers.forEach((header, i) => obj[header] = row[i]);
- *       return obj;
+ *     var userSheet = sheet.getSheetByName('Users') || sheet.insertSheet('Users');
+ *     var data = userSheet.getDataRange().getValues();
+ *     data.shift(); // remove headers
+ *     var neighborhoodTotals = {};
+ *     data.forEach(function(row) {
+ *       var name = row[3] || "Vigo"; 
+ *       var points = parseFloat(row[4]) || 0;
+ *       if (!neighborhoodTotals[name]) neighborhoodTotals[name] = { points: 0, trend: 0 };
+ *       neighborhoodTotals[name].points += points;
  *     });
+ *     var result = Object.keys(neighborhoodTotals).map(function(name) {
+ *       return { neighborhood: name, points: neighborhoodTotals[name].points, trend: 0 };
+ *     }).sort(function(a, b) { return b.points - a.points; });
  *     return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
+ *   }
+ *
+ *   if (action === 'getNeighborhoodUsers') {
+ *     var userSheet = sheet.getSheetByName('Users') || sheet.insertSheet('Users');
+ *     var data = userSheet.getDataRange().getValues();
+ *     data.shift();
+ *     var users = data.filter(function(row) { return row[3] == neighborhood; })
+ *                    .map(function(row) { return { name: row[1], points: parseFloat(row[4]) || 0, avatar: row[5] }; })
+ *                    .sort(function(a, b) { return b.points - a.points; });
+ *     return ContentService.createTextOutput(JSON.stringify(users)).setMimeType(ContentService.MimeType.JSON);
+ *   }
+ *
+ *   if (action === 'login') {
+ *     var username = e.parameter.username;
+ *     var password = e.parameter.password;
+ *     var userSheet = sheet.getSheetByName('Users') || sheet.insertSheet('Users');
+ *     var data = userSheet.getDataRange().getValues();
+ *     var headers = data.shift();
+ *     // We assume username is unique or we use the userId if they log in with that
+ *     var userRow = data.find(function(row) { 
+ *       return (row[0] == username || row[1] == username) && row[9] == password; 
+ *     });
+ *     if (userRow) {
+ *       var obj = {};
+ *       headers.forEach(function(h, i) { obj[h] = userRow[i]; });
+ *       return ContentService.createTextOutput(JSON.stringify({ success: true, user: obj })).setMimeType(ContentService.MimeType.JSON);
+ *     }
+ *     return ContentService.createTextOutput(JSON.stringify({ success: false, error: 'Credenciales inválidas' })).setMimeType(ContentService.MimeType.JSON);
  *   }
  *   
  *   if (action === 'getUserProfile') {
  *     var userSheet = sheet.getSheetByName('Users') || sheet.insertSheet('Users');
  *     var data = userSheet.getDataRange().getValues();
  *     var headers = data.shift();
- *     var userRow = data.find(row => row[0] == userId);
+ *     var userRow = data.find(function(row) { return row[0] == userId; });
  *     if (userRow) {
  *       var obj = {};
- *       headers.forEach((header, i) => obj[header] = userRow[i]);
+ *       headers.forEach(function(header, i) { obj[header] = userRow[i]; });
  *       return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
  *     }
  *     return ContentService.createTextOutput(JSON.stringify(null)).setMimeType(ContentService.MimeType.JSON);
@@ -45,9 +79,9 @@
  *     var historySheet = sheet.getSheetByName('History') || sheet.insertSheet('History');
  *     var data = historySheet.getDataRange().getValues();
  *     var headers = data.shift();
- *     var userHistory = data.filter(row => row[0] == userId).map(row => {
+ *     var userHistory = data.filter(function(row) { return row[0] == userId; }).map(function(row) {
  *       var obj = {};
- *       headers.forEach((header, i) => obj[header] = row[i]);
+ *       headers.forEach(function(header, i) { obj[header] = row[i]; });
  *       return obj;
  *     });
  *     return ContentService.createTextOutput(JSON.stringify(userHistory)).setMimeType(ContentService.MimeType.JSON);
@@ -59,95 +93,45 @@
  *     var data = JSON.parse(e.postData.contents);
  *     var sheet = SpreadsheetApp.getActiveSpreadsheet();
  *     
- *     if (data.action === 'logScan' || data.action === 'logBag') {
+ *     if (data.action === 'register') {
+ *       var userSheet = sheet.getSheetByName('Users') || sheet.insertSheet('Users');
+ *       if (userSheet.getLastRow() === 0) userSheet.appendRow(["userId", "name", "email", "neighborhood", "points", "avatar", "level", "streak", "savings", "password"]);
+ *       var existing = userSheet.getDataRange().getValues();
+ *       var alreadyExists = existing.some(function(row) { return row[0] == data.id; });
+ *       if (alreadyExists) return ContentService.createTextOutput(JSON.stringify({success: false, error: 'El usuario ya existe'})).setMimeType(ContentService.MimeType.JSON);
+ *       
+ *       userSheet.appendRow([data.id, data.name, data.email, data.neighborhood, 0, data.avatar, 1, 0, 0, data.password]);
+ *       return ContentService.createTextOutput(JSON.stringify({success: true})).setMimeType(ContentService.MimeType.JSON);
+ *     }
+ *
+ *     if (data.action === 'logScan' || data.action === 'logBag' || data.action === 'logSurvey') {
  *       var logSheet = sheet.getSheetByName('Logs') || sheet.insertSheet('Logs');
  *       if (logSheet.getLastRow() === 0) logSheet.appendRow(["date", "userId", "action", "details"]);
- *       
- *       // Check for duplicate QR codes (only for bags)
- *       if (data.action === 'logBag') {
- *         var logs = logSheet.getDataRange().getValues();
- *         for (var i = 0; i < logs.length; i++) {
- *           if (logs[i][2] === 'logBag') {
- *             try {
- *               var details = JSON.parse(logs[i][3]);
- *               if (details.bagCode === data.bagCode) {
- *                 return ContentService.createTextOutput(JSON.stringify({success: false, error: "QR ya utilizado"})).setMimeType(ContentService.MimeType.JSON);
- *               }
- *             } catch(e) {}
- *           }
- *         }
- *       }
- *
  *       logSheet.appendRow([new Date(), data.userId, data.action, JSON.stringify(data)]);
- *       
- *       // 1. Update user points and savings
  *       var userSheet = sheet.getSheetByName('Users') || sheet.insertSheet('Users');
- *       if (userSheet.getLastRow() === 0) userSheet.appendRow(["userId", "name", "email", "neighborhood", "points", "avatar", "level", "streak", "savings"]);
- *       
  *       var userData = userSheet.getDataRange().getValues();
  *       var rowIndex = -1;
- *       for (var i = 0; i < userData.length; i++) {
- *         if (userData[i][0] == data.userId) { rowIndex = i; break; }
- *       }
- *       
- *       var userNeighborhood = "Vigo";
+ *       for (var i = 0; i < userData.length; i++) { if (userData[i][0] == data.userId) { rowIndex = i; break; } }
  *       if (rowIndex > 0) {
- *         var currentPoints = parseFloat(userData[rowIndex][4]) || 0;
- *         var currentSavings = parseFloat(userData[rowIndex][8]) || 0;
- *         var pointsToAdd = parseFloat(data.points) || 0;
- *         var savingsToAdd = parseFloat(data.savings) || (pointsToAdd * 0.10);
- *         
- *         userSheet.getRange(rowIndex + 1, 5).setValue(currentPoints + pointsToAdd);
- *         userSheet.getRange(rowIndex + 1, 9).setValue(currentSavings + savingsToAdd);
- *         userNeighborhood = userData[rowIndex][3] || "Vigo";
- *       } else {
- *         // Create user if they don't exist
- *         userSheet.appendRow([data.userId, "Usuario Nuevo", "", "Vigo", data.points || 0, "", "1", "0", data.savings || 0]);
+ *         var p = parseFloat(userData[rowIndex][4]) || 0;
+ *         var s = parseFloat(userData[rowIndex][8]) || 0;
+ *         userSheet.getRange(rowIndex + 1, 5).setValue(p + (parseFloat(data.points) || 0));
+ *         userSheet.getRange(rowIndex + 1, 9).setValue(s + (parseFloat(data.savings) || 0));
  *       }
- *       
- *       // 2. Add to History
  *       var historySheet = sheet.getSheetByName('History') || sheet.insertSheet('History');
- *       if (historySheet.getLastRow() === 0) {
- *         historySheet.appendRow(["userId", "date", "points", "savings", "item"]);
- *       }
- *       var histSavings = parseFloat(data.savings) || (parseFloat(data.points) * 0.10);
- *       historySheet.appendRow([data.userId, new Date().toISOString().split('T')[0], data.points || 0, histSavings, data.item || data.bagCode || "Residuo"]);
- *       
- *       // 3. Update Rankings
- *       var rankingSheet = sheet.getSheetByName('Rankings') || sheet.insertSheet('Rankings');
- *       if (rankingSheet.getLastRow() === 0) rankingSheet.appendRow(["neighborhood", "points", "trend"]);
- *       
- *       var rankingData = rankingSheet.getDataRange().getValues();
- *       var rankRowIndex = -1;
- *       for (var j = 0; j < rankingData.length; j++) {
- *         if (rankingData[j][0] == userNeighborhood) { rankRowIndex = j; break; }
- *       }
- *       
- *       if (rankRowIndex > 0) {
- *         var currentRankPoints = parseFloat(rankingData[rankRowIndex][1]) || 0;
- *         rankingSheet.getRange(rankRowIndex + 1, 2).setValue(currentRankPoints + (parseFloat(data.points) || 0));
- *       } else {
- *         rankingSheet.appendRow([userNeighborhood, data.points || 0, 0]);
- *       }
- *       
+ *       historySheet.appendRow([data.userId, new Date().toISOString().split('T')[0], data.points || 0, (parseFloat(data.points) * 0.1), data.item || data.action]);
  *       return ContentService.createTextOutput(JSON.stringify({success: true})).setMimeType(ContentService.MimeType.JSON);
  *     }
  *
  *     if (data.action === 'updateProfile') {
  *       var userSheet = sheet.getSheetByName('Users') || sheet.insertSheet('Users');
  *       var userData = userSheet.getDataRange().getValues();
- *       var profile = data.profile;
+ *       var p = data.profile;
  *       var rowIndex = -1;
- *       for (var k = 0; k < userData.length; k++) {
- *         if (userData[k][0] == profile.id) { rowIndex = k; break; }
- *       }
- *       
+ *       for (var k = 0; k < userData.length; k++) { if (userData[k][0] == p.id) { rowIndex = k; break; } }
  *       if (rowIndex > 0) {
- *         userSheet.getRange(rowIndex + 1, 2).setValue(profile.name);
- *         userSheet.getRange(rowIndex + 1, 4).setValue(profile.neighborhood);
- *       } else {
- *         if (userSheet.getLastRow() === 0) userSheet.appendRow(["userId", "name", "email", "neighborhood", "points", "avatar", "level", "streak", "savings"]);
- *         userSheet.appendRow([profile.id, profile.name, profile.email, profile.neighborhood, profile.points || 0, profile.avatar, "1", "0", profile.savings || 0]);
+ *         userSheet.getRange(rowIndex + 1, 3).setValue(p.email);
+ *         userSheet.getRange(rowIndex + 1, 4).setValue(p.neighborhood);
  *       }
  *       return ContentService.createTextOutput(JSON.stringify({success: true})).setMimeType(ContentService.MimeType.JSON);
  *     }
@@ -158,6 +142,57 @@
  */
 
 const GOOGLE_SCRIPT_URL = import.meta.env.VITE_GOOGLE_SHEETS_URL || "";
+
+export async function loginUserFromSheet(username: string, password: string): Promise<{ success: boolean, user?: any, error?: string }> {
+  if (!GOOGLE_SCRIPT_URL) return { success: false, error: "Backend no configurado" };
+  try {
+    const url = new URL(GOOGLE_SCRIPT_URL);
+    url.searchParams.set('action', 'login');
+    url.searchParams.set('username', username);
+    url.searchParams.set('password', password);
+    url.searchParams.set('t', Date.now().toString());
+
+    const response = await fetch(url.toString());
+    if (!response.ok) return { success: false, error: "Error de servidor" };
+    const data = await response.json();
+    if (data.success) {
+      return {
+        success: true,
+        user: {
+          ...data.user,
+          points: parseFloat(data.user.points) || 0,
+          savings: parseFloat(data.user.savings) || 0
+        }
+      };
+    }
+    return { success: false, error: data.error || "Error desconocido" };
+  } catch (error) {
+    return { success: false, error: "Error de conexión" };
+  }
+}
+
+export async function registerUserInSheet(userData: any): Promise<{ success: boolean, error?: string }> {
+  if (!GOOGLE_SCRIPT_URL) return { success: false, error: "Backend no configurado" };
+  try {
+    const response = await fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      mode: 'cors',
+      cache: 'no-cache',
+      headers: { 'Content-Type': 'text/plain' },
+      body: JSON.stringify({ action: 'register', ...userData })
+    });
+    
+    // In many cases with Apps Script, CORS might make response not directly readable 
+    // if mode is no-cors. But we need to know if it succeeded.
+    // Try with cors first. If it fails, fallback.
+    const text = await response.text();
+    const result = JSON.parse(text);
+    return result;
+  } catch (error) {
+    // If CORS fails, we can't be sure, but we'll try to provide a better error
+    return { success: false, error: "Error al registrar. Verifica la consola." };
+  }
+}
 
 export async function logScanToSheet(userId: string, data: any) {
   if (!GOOGLE_SCRIPT_URL) {
@@ -285,6 +320,8 @@ export async function getRankingsFromSheet() {
   try {
     const url = new URL(GOOGLE_SCRIPT_URL);
     url.searchParams.set('action', 'getRankings');
+    url.searchParams.set('t', Date.now().toString());
+    
     const response = await fetch(url.toString());
     if (!response.ok) return defaultRankings;
     const data = await response.json();
@@ -300,6 +337,7 @@ export async function getHistoryFromSheet(userId: string) {
     const url = new URL(GOOGLE_SCRIPT_URL);
     url.searchParams.set('action', 'getHistory');
     url.searchParams.set('userId', userId);
+    url.searchParams.set('t', Date.now().toString());
     const response = await fetch(url.toString());
     if (!response.ok) return [];
     const data = await response.json();
@@ -315,7 +353,22 @@ export async function getUserRankings(neighborhood: string) {
     { name: "Carlos R.", points: 1120, avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Carlos" },
     { name: "Lucía P.", points: 980, avatar: "https://api.dicebear.com/7.x/avataaars/svg?seed=Lucia" },
   ];
-  return defaultUsers;
+
+  if (!GOOGLE_SCRIPT_URL) return defaultUsers;
+
+  try {
+    const url = new URL(GOOGLE_SCRIPT_URL);
+    url.searchParams.set('action', 'getNeighborhoodUsers');
+    url.searchParams.set('neighborhood', neighborhood);
+    url.searchParams.set('t', Date.now().toString());
+    
+    const response = await fetch(url.toString());
+    if (!response.ok) return defaultUsers;
+    const data = await response.json();
+    return Array.isArray(data) && data.length > 0 ? data : defaultUsers;
+  } catch (error) {
+    return defaultUsers;
+  }
 }
 
 export async function getContainerLocations() {

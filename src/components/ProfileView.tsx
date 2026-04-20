@@ -22,6 +22,11 @@ export default function ProfileView({ user, onUpdate, onLogout, onShowNotificati
     neighborhood: user.neighborhood
   });
 
+  const neighborhoods = [
+    'Centro', 'Coia', 'Teis', 'Bouzas', 'Navia', 'Calvario', 
+    'Casco Vello', 'Balaídos', 'Fragoso', 'Sárdoma', 'Matamá'
+  ];
+
   useEffect(() => {
     async function checkBackend() {
       try {
@@ -71,7 +76,7 @@ export default function ProfileView({ user, onUpdate, onLogout, onShowNotificati
 
       {/* Stats Grid */}
       <div className="grid grid-cols-3 gap-4">
-        <StatItem label="Puntos" value={user.points} />
+        <StatItem label="Puntos" value={user.points.toFixed(1)} />
         <StatItem label="Nivel" value="12" />
         <StatItem label="Racha" value="5d" />
       </div>
@@ -82,19 +87,35 @@ export default function ProfileView({ user, onUpdate, onLogout, onShowNotificati
         <div className="bg-surface-dark rounded-2xl border border-white/5 overflow-hidden">
           {isEditing ? (
             <div className="p-4 space-y-4">
-              <Input label="Nombre" value={formData.name} onChange={v => setFormData({...formData, name: v})} />
-              <Input label="Email" value={formData.email} onChange={v => setFormData({...formData, email: v})} />
-              <Input label="Barrio" value={formData.neighborhood} onChange={v => setFormData({...formData, neighborhood: v})} />
+              <div className="space-y-1 opacity-60">
+                <label className="text-[10px] text-text-secondary uppercase font-bold px-1">Nombre (No Editable)</label>
+                <div className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm">
+                  {formData.name}
+                </div>
+              </div>
+              <Input label="Email" value={formData.email} onChange={(v: string) => setFormData({...formData, email: v})} />
+              <div className="space-y-1">
+                <label className="text-[10px] text-text-secondary uppercase font-bold px-1">Barrio</label>
+                <select 
+                  value={formData.neighborhood} 
+                  onChange={e => setFormData({...formData, neighborhood: e.target.value})}
+                  className="w-full bg-white/5 border-white/10 rounded-xl text-white text-sm focus:ring-primary focus:border-primary appearance-none h-11 px-4"
+                >
+                  {neighborhoods.map(n => (
+                    <option key={n} value={n} className="bg-surface-dark">{n}</option>
+                  ))}
+                </select>
+              </div>
               <button 
                 onClick={handleSave}
-                className="w-full bg-primary text-background-dark font-bold py-3 rounded-xl flex items-center justify-center gap-2"
+                className="w-full bg-primary text-background-dark font-bold py-3 rounded-xl flex items-center justify-center gap-2 mt-4 active:scale-95 transition-transform"
               >
                 <Save size={18} /> Guardar Cambios
               </button>
             </div>
           ) : (
             <div className="divide-y divide-white/5">
-              <ProfileLink icon={<User size={18} />} label="Nombre" value={user.name} onClick={() => setIsEditing(true)} />
+              <ProfileLink icon={<User size={18} />} label="Nombre" value={user.name} />
               <ProfileLink icon={<Mail size={18} />} label="Email" value={user.email} onClick={() => setIsEditing(true)} />
               <ProfileLink icon={<MapPin size={18} />} label="Barrio" value={user.neighborhood} onClick={() => setIsEditing(true)} />
             </div>
