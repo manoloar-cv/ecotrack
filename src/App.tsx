@@ -211,7 +211,7 @@ export default function App() {
   const renderContent = () => {
     switch (activeTab) {
       case 'map': return <MapView />;
-      case 'rewards': return <RewardsView neighborhood={user.neighborhood} userPoints={user.points} />;
+      case 'rewards': return <RewardsView neighborhood={user.neighborhood} user={user} />;
       case 'profile': return (
         <ProfileView 
           user={user} 
@@ -324,24 +324,30 @@ export default function App() {
               {neighborhoodUsers?.slice(0, 3).map((rank, i) => (
                 <div key={rank.name || i} className="flex items-center justify-between p-3 hover:bg-white/5 rounded-lg transition-colors">
                   <div className="flex items-center gap-3">
-                    <span className={cn("font-bold w-4", i === 0 ? "text-yellow-400" : "text-gray-400")}>{i + 1}</span>
+                    <span className={cn("font-bold w-4", i === 0 ? "text-yellow-400" : i === 1 ? "text-gray-300" : i === 2 ? "text-amber-600" : "text-gray-400")}>{i + 1}</span>
                     <div className="h-8 w-8 rounded-full bg-cover bg-center" 
                          style={{ backgroundImage: `url('${rank.avatar}')` }} />
-                    <span className="text-sm font-medium text-white">{rank.name}</span>
+                    <span className="text-sm font-medium text-white">{rank.name === user.name ? "Tú" : rank.name}</span>
                   </div>
-                  <span className="text-sm font-bold text-primary">{rank.points.toLocaleString()} pts</span>
+                  <span className="text-sm font-bold text-primary">{rank.points.toFixed(1)} pts</span>
                 </div>
               ))}
-              <div className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-primary/20">
-                <div className="flex items-center gap-3">
-                  {/* Local rank logic would go here, 12 is placeholder */}
-                  <span className="font-bold text-primary w-4">#</span>
-                  <div className="h-8 w-8 rounded-full bg-cover bg-center border border-primary" 
-                       style={{ backgroundImage: `url('${user.avatar}')` }} />
-                  <span className="text-sm font-medium text-white">Tú</span>
+              
+              {neighborhoodUsers && neighborhoodUsers.findIndex(u => u.name === user.name) >= 3 && (
+                <div className="flex items-center justify-between p-3 bg-white/5 rounded-lg border border-primary/20 mt-1">
+                  <div className="flex items-center gap-3">
+                    <span className="font-bold text-primary w-4">{neighborhoodUsers.findIndex(u => u.name === user.name) + 1}</span>
+                    <div className="h-8 w-8 rounded-full bg-cover bg-center border border-primary" 
+                         style={{ backgroundImage: `url('${user.avatar}')` }} />
+                    <span className="text-sm font-medium text-white">Tú</span>
+                  </div>
+                  <span className="text-sm font-bold text-white">{user.points.toFixed(1)} pts</span>
                 </div>
-                <span className="text-sm font-bold text-white">{user.points.toFixed(1)} pts</span>
-              </div>
+              )}
+
+              {neighborhoodUsers?.length === 0 && (
+                <p className="text-center text-xs text-text-secondary py-4">Sé el primero en reciclar en tu barrio</p>
+              )}
             </div>
           </div>
 

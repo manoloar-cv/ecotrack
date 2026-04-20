@@ -5,7 +5,7 @@ import { getRankingsFromSheet, getUserRankings } from '../services/sheetService'
 import { NeighborhoodRanking, UserRanking } from '../types';
 import { cn } from '../lib/utils';
 
-export default function RewardsView({ neighborhood, userPoints }: { neighborhood: string, userPoints: number }) {
+export default function RewardsView({ neighborhood, user }: { neighborhood: string, user: any }) {
   const [view, setView] = useState<'neighborhoods' | 'users'>('neighborhoods');
   const [neighborhoods, setNeighborhoods] = useState<NeighborhoodRanking[]>([]);
   const [users, setUsers] = useState<UserRanking[]>([]);
@@ -14,6 +14,11 @@ export default function RewardsView({ neighborhood, userPoints }: { neighborhood
     getRankingsFromSheet().then(setNeighborhoods);
     getUserRankings(neighborhood).then(setUsers);
   }, [neighborhood]);
+
+  const top3Users = users.slice(0, 3);
+  const myIndex = users.findIndex(u => u.name === user.name);
+  const isInTop3 = myIndex >= 0 && myIndex < 3;
+  const myRank = myIndex + 1;
 
   return (
     <div className="flex-1 overflow-y-auto p-6 space-y-8 pb-32">
@@ -60,23 +65,38 @@ export default function RewardsView({ neighborhood, userPoints }: { neighborhood
           ))
         ) : (
           <>
-            {users.map((u, i) => (
-              <RankingCard 
-                key={u.name || i} 
-                rank={i + 1} 
-                name={u.name} 
-                value={`${u.points.toLocaleString()} pts`} 
-                avatar={u.avatar}
-              />
-            ))}
-            <div className="pt-4 border-t border-white/5">
-              <RankingCard 
-                rank={12} 
-                name="Tú" 
-                value={`${userPoints.toLocaleString()} pts`} 
-                avatar="https://api.dicebear.com/7.x/avataaars/svg?seed=Alejandro"
-                isMe
-              />
+            <div className="space-y-4">
+              {top3Users.map((u, i) => (
+                <RankingCard 
+                  key={u.name || i} 
+                  rank={i + 1} 
+                  name={u.name === user.name ? "Tú" : u.name} 
+                  value={`${u.points.toFixed(1)} pts`} 
+                  avatar={u.avatar}
+                  isMe={u.name === user.name}
+                />
+              ))}
+              
+              {!isInTop3 && myIndex !== -1 && (
+                <>
+                  <div className="flex justify-center p-2">
+                    <div className="w-1 h-8 bg-white/5 rounded-full" />
+                  </div>
+                  <RankingCard 
+                    rank={myRank} 
+                    name="Tú" 
+                    value={`${user.points.toFixed(1)} pts`} 
+                    avatar={user.avatar}
+                    isMe
+                  />
+                </>
+              )}
+
+              {users.length === 0 && (
+                <div className="text-center py-10 opacity-40">
+                  <p className="text-sm">No hay usuarios registrados aún en {neighborhood}</p>
+                </div>
+              )}
             </div>
           </>
         )}
